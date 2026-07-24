@@ -1,0 +1,39 @@
+[
+  {
+    "id": "ollama",
+    "kind": "ollama",
+    "apiEndpoint": "http://localhost:11434/api",
+    "models": [
+      { "model": "gemma3:4b" },
+      { "model": "alibayram/smollm3" },
+      { "model": "qwen3:4b" },
+      { "model": "qwen2.5:3b-instruct" },
+      { "model": "llama3.2:3b" },
+      { "model": "phi4-mini" },
+      { "model": "llama3.1:8b" },
+      { "model": "phi4" },
+      { "model": "qwen2.5:7b-instruct" }
+    ]
+  },
+  {
+    "id": "groq",
+    "kind": "openAiCompatible",
+    "apiEndpoint": "https://api.groq.com/openai/v1",
+    "apiKey": "PYTICKETAGENT_GROQ_API_KEY",
+    "models": [
+      { "model": "openai/gpt-oss-20b" },
+      { "model": "qwen/qwen3.6-27b" }
+    ]
+  },
+  {
+    "id": "gemini",
+    "kind": "gemini",
+    "apiKey": "PYTICKETAGENT_GEMINI_API_KEY",
+    "models": [
+      { "model": "gemini-3.5-flash" },
+      { "model": "gemini-3.1-flash-lite" },
+      { "model": "gemini-2.5-flash" },
+      { "model": "gemini-2.5-flash-lite" }
+    ]
+  }
+]

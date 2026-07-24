@@ -1,0 +1,33 @@
+[project]
+name = "pyticketagent-workspace"
+version = "0.1.0"
+description = "pyTicketAgent workspace — Python incident ticket agent (FastAPI + asyncpg)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyticketagent-core",
+    "pyticketagent-api",
+    "pyticketagent-generator",
+]
+
+[tool.uv.workspace]
+members = [
+    "packages/pyticketagent_core",
+    "packages/pyticketagent_api",
+    "packages/pyticketagent_generator",
+]
+
+[tool.uv.sources]
+pyticketagent-core = { workspace = true }
+pyticketagent-api = { workspace = true }
+pyticketagent-generator = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

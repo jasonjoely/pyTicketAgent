@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local / generated
+.env
+incident-tickets.json
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+tmp_wheels/
+.vs/
