@@ -37,7 +37,7 @@ uv run python -m pyticketagent_generator
 
 Writes `incident-tickets.json` to the current working directory.
 
-### Database (API — later)
+### Database
 
 ```powershell
 psql -U postgres -f database/001_create_pytickets.sql
@@ -45,16 +45,30 @@ psql -U postgres -f database/001_create_pytickets.sql
 
 Database name: **`pyTickets`**. Connection string and env vars use the `PYTICKETAGENT_*` prefix (see `.env.example`).
 
-### API (later)
+### API
+
+Copy `.env.example` to `.env` and set `PYTICKETAGENT_DATABASE_URL`, then:
 
 ```powershell
 uv run uvicorn pyticketagent_api.main:app --reload --port 8000
 ```
 
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Liveness check |
+| `POST` | `/ingest` | Upsert a JSON array of incident tickets (soft-fail per ticket) |
+| `GET` | `/incidents/{id}` | Fetch one incident by id (404 if missing) |
+
+OpenAPI docs: `http://localhost:8000/docs`
+
 ## Environment variables
 
 | Variable | Required for | Description |
 |----------|--------------|-------------|
+| `PYTICKETAGENT_DATABASE_URL` | API | PostgreSQL connection string for `pyTickets` |
+| `PYTICKETAGENT_DATABASE_RETRY_MAX_ATTEMPTS` | API (optional) | Transient DB retries after first failure (default `3`) |
+| `PYTICKETAGENT_DATABASE_RETRY_INITIAL_DELAY_MS` | API (optional) | Initial retry backoff in ms (default `200`) |
+| `PYTICKETAGENT_DATABASE_RETRY_MAX_DELAY_MS` | API (optional) | Max retry backoff in ms (default `2000`) |
 | `PYTICKETAGENT_LLM_PROVIDER` | Assist | Provider id from `ai-providers.json` |
 | `PYTICKETAGENT_LLM_MODEL` | Assist | Model name for the chosen provider |
 | `PYTICKETAGENT_GROQ_API_KEY` | Groq | API key when provider is `groq` |
