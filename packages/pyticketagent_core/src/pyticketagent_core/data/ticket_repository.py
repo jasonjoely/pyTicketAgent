@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncpg
 
+from pyticketagent_core.data.ticket_filter import TicketFilter
+from pyticketagent_core.data.ticket_search_query import TicketSearchQuery
 from pyticketagent_core.data.upsert_outcome import UpsertOutcome
 from pyticketagent_core.tickets.incident_ticket import IncidentTicket
 
@@ -59,6 +61,50 @@ class TicketRepository:
             return None
 
         return _row_to_ticket(row)
+
+    async def search(self, query: TicketSearchQuery) -> list[IncidentTicket]:
+        """Full-text search with optional environment/service/severity/tags filters."""
+        search_text = query.search_text.strip()
+        if not search_text:
+            return []
+
+        filter_ = query.filter or TicketFilter()
+        conditions = ["search_vector @@ plainto_tsquery('english', $1)"]
+        args: list[object] = [search_text]
+        param_index = 2
+
+        if filter_.environment and filter_.environment.strip():
+            conditions.append(f"environment = ${param_index}")
+            args.append(filter_.environment)
+            param_index += 1
+
+        if filter_.service and filter_.service.strip():
+            conditions.append(f"service = ${param_index}")
+            args.append(filter_.service)
+            param_index += 1
+
+        if filter_.tags:
+            conditions.append(f"tags && ${param_index}::text[]")
+            args.append(filter_.tags)
+            param_index += 1
+
+        if filter_.severity is not None:
+            conditions.append(f"severity = ${param_index}")
+            args.append(filter_.severity)
+            param_index += 1
+
+        where_sql = " AND ".join(conditions)
+        search_sql = f"""
+            SELECT {_SELECT_COLUMNS}
+            FROM tickets
+            WHERE {where_sql}
+            ORDER BY created_at DESC
+        """
+
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(search_sql, *args)
+
+        return [_row_to_ticket(row) for row in rows]
 
     async def upsert(self, ticket: IncidentTicket) -> UpsertOutcome:
         """Insert or update a ticket by id. Returns Created or Updated."""

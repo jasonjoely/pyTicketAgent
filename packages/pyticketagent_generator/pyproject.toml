@@ -9,11 +9,6 @@ dependencies = [
     "typer>=0.15",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "types-faker",
-]
-
 [project.scripts]
 pyticketagent-generator = "pyticketagent_generator.cli:app"
 
