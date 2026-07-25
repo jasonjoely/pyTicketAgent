@@ -7,6 +7,9 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "asyncpg>=0.30",
+    "ollama>=0.6",
+    "groq>=0.28",
+    "google-genai>=1.0",
 ]
 
 [build-system]
