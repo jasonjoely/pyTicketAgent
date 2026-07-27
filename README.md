@@ -1,6 +1,6 @@
 # pyTicketAgent
 
-Python equivalent of [DFAgent](../DFAgent): incident ticket management with PostgreSQL full-text search and LLM-assisted troubleshooting.
+Python implementation of an Incident Ticket Management System with PostgreSQL full-text search and LLM-assisted troubleshooting.
 
 | Package | Purpose |
 |---------|---------|
@@ -127,7 +127,3 @@ packages/
 database/
 tests/
 ```
-
-## Relationship to DFAgent
-
-Starting artifacts (DDL, ticket scenarios, AI provider config, prompts) were copied from DFAgent and adapted for this repo. The stacks are independent; this database is **`pyTickets`**, not `dftickets`.
