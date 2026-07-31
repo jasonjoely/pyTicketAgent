@@ -18,6 +18,9 @@ from pyticketagent_core.assist.search_assist_prompt_builder import (
 from pyticketagent_core.assist.ticket_assist_prompt_builder import TicketAssistPromptBuilder
 from pyticketagent_core.configuration.settings import Settings
 from pyticketagent_core.data.ticket_repository import TicketRepository
+from pyticketagent_core.embeddings.dual_space_embedding_runtime import (
+    DualSpaceEmbeddingRuntime,
+)
 
 from pyticketagent_api.services.search_assist_service import SearchAssistService
 from pyticketagent_api.services.ticket_assist_service import TicketAssistService
@@ -36,6 +39,12 @@ def get_ai_provider_registry(request: Request) -> JsonAiProviderRegistry:
     return request.app.state.ai_provider_registry
 
 
+def get_embedding_runtime(
+    request: Request,
+) -> DualSpaceEmbeddingRuntime | None:
+    return getattr(request.app.state, "embedding_runtime", None)
+
+
 def get_ticket_repository(
     pool: Annotated[asyncpg.Pool, Depends(get_pool)],
 ) -> TicketRepository:
@@ -45,9 +54,13 @@ def get_ticket_repository(
 def get_ticket_ingest_service(
     repository: Annotated[TicketRepository, Depends(get_ticket_repository)],
     settings: Annotated[Settings, Depends(get_settings)],
+    embedding_runtime: Annotated[
+        DualSpaceEmbeddingRuntime | None, Depends(get_embedding_runtime)
+    ],
 ) -> TicketIngestService:
     return TicketIngestService(
         repository,
+        embedding_runtime=embedding_runtime,
         retry_max_attempts=settings.database_retry_max_attempts,
         retry_initial_delay_ms=settings.database_retry_initial_delay_ms,
         retry_max_delay_ms=settings.database_retry_max_delay_ms,

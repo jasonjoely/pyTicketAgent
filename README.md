@@ -1,6 +1,6 @@
 # pyTicketAgent
 
-Python implementation of an Incident Ticket Management System with PostgreSQL full-text search and LLM-assisted troubleshooting.
+Python implementation of an Incident Ticket Management System with PostgreSQL full-text search, dual-space vector embeddings at ingest (pgvector), and LLM-assisted troubleshooting.
 
 | Package | Purpose |
 |---------|---------|
@@ -12,8 +12,9 @@ Python implementation of an Incident Ticket Management System with PostgreSQL fu
 
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
-- PostgreSQL 12+ (for API; not required for Generator)
+- PostgreSQL 12+ with [pgvector](https://github.com/pgvector/pgvector) (for API; not required for Generator)
 - An LLM provider for Assist endpoints ([Ollama](https://ollama.com/), [Groq](https://groq.com/), or [Google Gemini](https://ai.google.dev/))
+- For the Ollama embedding space at ingest: `ollama pull nomic-embed-text` (FastEmbed downloads weights on first use)
 
 ## Getting started
 
@@ -41,9 +42,19 @@ Writes `incident-tickets.json` to the current working directory.
 
 ```powershell
 psql -U postgres -f database/001_create_pytickets.sql
+psql -U postgres -d pyTickets -f database/002_add_ticket_embeddings.sql
 ```
 
 Database name: **`pyTickets`**. Connection string and env vars use the `PYTICKETAGENT_*` prefix (see `.env.example`).
+
+`002` enables `vector` (if needed) and adds dual embedding columns + HNSW indexes:
+
+| Space | Default model | Dimensions |
+|-------|---------------|------------|
+| FastEmbed | `BAAI/bge-base-en-v1.5` | 768 |
+| Ollama | `nomic-embed-text` | 768 |
+
+`POST /ingest` embeds both spaces (in parallel), then upserts ticket + vectors. Per-space failures set that space to `NULL` (ticket still saved). If the embedding text hash and model are unchanged, existing vectors are preserved (see [Content hash skip](#content-hash-skip-preserve-vectors)). Semantic search against these columns is not wired yet (FTS-only `GET /search`).
 
 ### API
 
@@ -56,7 +67,7 @@ uv run uvicorn pyticketagent_api.main:app --reload --port 8000
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Liveness check |
-| `POST` | `/ingest` | Upsert a JSON array of incident tickets (soft-fail per ticket) |
+| `POST` | `/ingest` | Upsert tickets (soft-fail per ticket) and dual-space embeddings (soft-fail per space) |
 | `GET` | `/incidents/{id}` | Fetch one incident by id (404 if missing) |
 | `GET` | `/search` | Full-text search with optional environment/service/severity/tags filters |
 | `GET` | `/incidents/{id}/assist` | LLM next steps + customer draft for one incident |
@@ -99,6 +110,27 @@ Invoke-RestMethod "http://localhost:8000/assist" -Method Post -ContentType "appl
 
 Assist endpoints return `503` if LLM configuration is missing/invalid or the request times out, and `502` if the LLM response could not be parsed. `GET /incidents/{id}/assist` also returns `404` if the ticket does not exist. `POST /assist` returns `400` if `question` is missing or blank.
 
+### Configure embeddings (ingest)
+
+Edit the packaged API config:
+
+`packages/pyticketagent_core/src/pyticketagent_core/resources/embedding_providers.json`
+
+| JSON field | Purpose |
+|------------|---------|
+| `spaces.fastembed` / `spaces.ollama` | `enabled`, `providerId`, `model` for each dual-space column |
+| `requestTimeoutSeconds` | Ollama embed HTTP timeout |
+| `defaultSearchSpace` | Preferred space for future semantic search (`fastembed` / `ollama`) |
+| `providers` | Catalog of available models (must include the active `spaces.*.model` entries) |
+
+Restart the API after editing. For Ollama space:
+
+```powershell
+ollama pull nomic-embed-text
+```
+
+Embedding failures are logged (WARNING) only; they do not appear in the ingest JSON response.
+
 ## Environment variables
 
 | Variable | Required for | Description |
@@ -117,6 +149,8 @@ Assist endpoints return `503` if LLM configuration is missing/invalid or the req
 | `PYTICKETAGENT_LLM_TRANSIENT_RETRY_INITIAL_DELAY_MS` | Assist (optional) | Initial LLM retry backoff in ms (default `1000`) |
 | `PYTICKETAGENT_LLM_TRANSIENT_RETRY_MAX_DELAY_MS` | Assist (optional) | Max LLM retry backoff in ms (default `60000`) |
 
+Embedding ingest settings live in `embedding_providers.json` (see above), not environment variables.
+
 ## Workspace layout
 
 ```
@@ -127,3 +161,101 @@ packages/
 database/
 tests/
 ```
+
+## Embedding architecture (Phase A)
+
+Dual-space POC: every ingest can store **two** 768-d vectors on the same `tickets` row (FastEmbed + Ollama). Semantic search is **not** wired yet — columns are filled for later Phase B.
+
+### End-to-end flow
+
+```
+embedding_providers.json
+        │
+        ▼
+main.py lifespan → EmbeddingAppConfig → DualSpaceEmbeddingRuntime
+        │
+POST /ingest → TicketIngestService
+        │  build text + hash (per space)
+        │  FastEmbed + Ollama embed (parallel; soft-fail → NULL)
+        ▼
+TicketRepository.upsert → PostgreSQL tickets
+        (embedding_fastembed* / embedding_ollama* columns)
+```
+
+### Content hash skip (preserve vectors)
+
+The hash is **not** of the whole DB row. It is a SHA-256 of the **embedding document text** for that space (`TicketEmbeddingTextBuilder`: service, environment, tags, title, description, resolution; plus Nomic `search_document:` prefix for Ollama).
+
+For a space, ingest **preserves** the existing vector (no re-embed) only when **all** are true:
+
+1. A vector already exists for that space
+2. Stored `embedding_*_content_hash` equals the new hash of that embed text
+3. Stored `embedding_*_model` equals the current configured model id (e.g. `fastembed:BAAI/bge-base-en-v1.5`)
+
+So: **same embed text + same model ⇒ treat embedding input as unchanged ⇒ keep vectors**.
+
+If the embed text changes or the configured model changes, that space is re-embedded (or cleared to `NULL` on embed failure).
+
+Fields not in the embed body (e.g. `severity`, `id`, `created_at`) do not affect the hash; changing only those will skip re-embed.
+
+### `EmbeddingClient` (protocol, not implementation)
+
+[`embedding_client.py`](packages/pyticketagent_core/src/pyticketagent_core/embeddings/embedding_client.py) defines a **Python `Protocol`**: a contract that any embedding backend must implement. It declares one method — `async def embed(texts) -> list[list[float]]` — and contains no logic. The `...` in the file means “signature only,” not “unfinished code.”
+
+This matches how LLM assist uses [`chat_client.py`](packages/pyticketagent_core/src/pyticketagent_core/ai/chat_client.py) (`ChatClient` protocol vs concrete clients).
+
+| Piece | Role |
+|-------|------|
+| `EmbeddingClient` | Interface ingest code depends on |
+| `FastEmbedEmbeddingClient` | In-process FastEmbed (ONNX via `asyncio.to_thread`) |
+| `OllamaEmbeddingClient` | Ollama HTTP embed via SDK |
+| `EmbeddingClientFactory` | Creates the right client from provider kind in JSON config |
+| `DualSpaceEmbeddingRuntime` | Holds both clients + bindings for the POC |
+
+Flow: `TicketIngestService` only calls `await client.embed([text])`. It does not know FastEmbed from Ollama. At startup, `DualSpaceEmbeddingRuntimeFactory` wires the concrete clients from `embedding_providers.json`. Tests use a fake class with the same `embed` method — no inheritance required; `Protocol` is structural typing.
+
+### Where things live
+
+| Concern | Location |
+|---------|----------|
+| Schema / pgvector columns | [`database/002_add_ticket_embeddings.sql`](database/002_add_ticket_embeddings.sql) |
+| Active models, enabled flags, timeout | [`embedding_providers.json`](packages/pyticketagent_core/src/pyticketagent_core/resources/embedding_providers.json) (`spaces`, `requestTimeoutSeconds`, …) |
+| Config load + provider catalog types | `packages/pyticketagent_core/.../embeddings/` (`json_embedding_provider_registry_loader.py`, `embedding_app_config.py`, …) |
+| FastEmbed / Ollama clients | `fastembed_embedding_client.py`, `ollama_embedding_client.py`, `embedding_client_factory.py` |
+| Dual-space runtime | `dual_space_embedding_runtime.py` + `_factory.py` |
+| Text to embed + content hash | `ticket_embedding_text_builder.py`, `embedding_content_hasher.py` |
+| Persist vectors | [`ticket_repository.py`](packages/pyticketagent_core/src/pyticketagent_core/data/ticket_repository.py) (`upsert`, `get_embedding_meta`) |
+| Ingest orchestration + logging | [`ticket_ingest_service.py`](packages/pyticketagent_api/src/pyticketagent_api/services/ticket_ingest_service.py) |
+| App startup wiring | [`main.py`](packages/pyticketagent_api/src/pyticketagent_api/main.py), [`dependencies.py`](packages/pyticketagent_api/src/pyticketagent_api/dependencies.py) |
+| Unit tests | `tests/unit/embeddings/*`, `tests/unit/api/test_ticket_ingest_embedding.py` |
+
+### `embeddings/` package (core) — by role
+
+**Config / catalog**
+
+- `embedding_providers_resource.py` — read packaged JSON
+- `embedding_providers_file.py` — JSON document schema
+- `embedding_space_binding_config.py` — one space’s enabled/provider/model
+- `embedding_app_config.py` — loaded config + registry
+- `embedding_space.py`, `embedding_provider_kind.py`
+- `embedding_model_definition.py`, `embedding_provider_definition.py`, `embedding_model_binding.py`
+- `json_embedding_provider_registry.py`, `json_embedding_provider_registry_loader.py`
+
+**Runtime / providers**
+
+- `embedding_client.py` — protocol
+- `fastembed_embedding_client.py`, `ollama_embedding_client.py`
+- `embedding_client_factory.py`
+- `dual_space_embedding_runtime.py`, `dual_space_embedding_runtime_factory.py`
+
+**Ingest helpers**
+
+- `ticket_embedding_text_builder.py` — document text; Nomic `search_document:` / `search_query:` for Ollama
+- `embedding_content_hasher.py` — skip re-embed when unchanged
+- `embedding_space_write.py`, `ticket_embeddings_write.py` — preserve / clear / set per space
+- `ticket_embedding_meta.py`, `ticket_embedding_space_meta.py` — DB meta for skip decisions
+- `pgvector_literal.py` — vector text format for asyncpg
+
+### Not part of embeddings
+
+LLM assist still uses `ai_providers.json` + `PYTICKETAGENT_LLM_*` env vars under `pyticketagent_core/ai/` and the assist services. That path is independent of dual-space embedding ingest.
