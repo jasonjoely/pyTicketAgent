@@ -7,6 +7,13 @@ import asyncpg
 from pyticketagent_core.data.ticket_filter import TicketFilter
 from pyticketagent_core.data.ticket_search_query import TicketSearchQuery
 from pyticketagent_core.data.upsert_outcome import UpsertOutcome
+from pyticketagent_core.embeddings.embedding_space_write import EmbeddingSpaceWrite
+from pyticketagent_core.embeddings.pgvector_literal import format_pgvector_literal
+from pyticketagent_core.embeddings.ticket_embedding_meta import TicketEmbeddingMeta
+from pyticketagent_core.embeddings.ticket_embedding_space_meta import (
+    TicketEmbeddingSpaceMeta,
+)
+from pyticketagent_core.embeddings.ticket_embeddings_write import TicketEmbeddingsWrite
 from pyticketagent_core.tickets.incident_ticket import IncidentTicket
 
 _SELECT_COLUMNS = """
@@ -24,9 +31,17 @@ _SELECT_COLUMNS = """
 _UPSERT_SQL = """
     INSERT INTO tickets (
         id, created_at, environment, service, title, description,
-        resolution_summary, tags, severity
+        resolution_summary, tags, severity,
+        embedding_fastembed, embedding_fastembed_model,
+        embedding_fastembed_content_hash, embedding_fastembed_updated_at,
+        embedding_ollama, embedding_ollama_model,
+        embedding_ollama_content_hash, embedding_ollama_updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9,
+        $10::vector, $11, $12, $13,
+        $14::vector, $15, $16, $17
+    )
     ON CONFLICT (id) DO UPDATE SET
         created_at         = EXCLUDED.created_at,
         environment        = EXCLUDED.environment,
@@ -35,12 +50,56 @@ _UPSERT_SQL = """
         description        = EXCLUDED.description,
         resolution_summary = EXCLUDED.resolution_summary,
         tags               = EXCLUDED.tags,
-        severity           = EXCLUDED.severity
+        severity           = EXCLUDED.severity,
+        embedding_fastembed = CASE
+            WHEN $18::boolean THEN EXCLUDED.embedding_fastembed
+            ELSE tickets.embedding_fastembed
+        END,
+        embedding_fastembed_model = CASE
+            WHEN $18::boolean THEN EXCLUDED.embedding_fastembed_model
+            ELSE tickets.embedding_fastembed_model
+        END,
+        embedding_fastembed_content_hash = CASE
+            WHEN $18::boolean THEN EXCLUDED.embedding_fastembed_content_hash
+            ELSE tickets.embedding_fastembed_content_hash
+        END,
+        embedding_fastembed_updated_at = CASE
+            WHEN $18::boolean THEN EXCLUDED.embedding_fastembed_updated_at
+            ELSE tickets.embedding_fastembed_updated_at
+        END,
+        embedding_ollama = CASE
+            WHEN $19::boolean THEN EXCLUDED.embedding_ollama
+            ELSE tickets.embedding_ollama
+        END,
+        embedding_ollama_model = CASE
+            WHEN $19::boolean THEN EXCLUDED.embedding_ollama_model
+            ELSE tickets.embedding_ollama_model
+        END,
+        embedding_ollama_content_hash = CASE
+            WHEN $19::boolean THEN EXCLUDED.embedding_ollama_content_hash
+            ELSE tickets.embedding_ollama_content_hash
+        END,
+        embedding_ollama_updated_at = CASE
+            WHEN $19::boolean THEN EXCLUDED.embedding_ollama_updated_at
+            ELSE tickets.embedding_ollama_updated_at
+        END
     RETURNING (xmax = 0) AS inserted
 """
 
 _GET_BY_ID_SQL = f"""
     SELECT {_SELECT_COLUMNS}
+    FROM tickets
+    WHERE id = $1
+"""
+
+_GET_EMBEDDING_META_SQL = """
+    SELECT
+        embedding_fastembed_model,
+        embedding_fastembed_content_hash,
+        (embedding_fastembed IS NOT NULL) AS embedding_fastembed_has_vector,
+        embedding_ollama_model,
+        embedding_ollama_content_hash,
+        (embedding_ollama IS NOT NULL) AS embedding_ollama_has_vector
     FROM tickets
     WHERE id = $1
 """
@@ -61,6 +120,29 @@ class TicketRepository:
             return None
 
         return _row_to_ticket(row)
+
+    async def get_embedding_meta(
+        self, ticket_id: int
+    ) -> TicketEmbeddingMeta | None:
+        """Return embedding metadata for hash-skip decisions, or None if missing."""
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(_GET_EMBEDDING_META_SQL, ticket_id)
+
+        if row is None:
+            return None
+
+        return TicketEmbeddingMeta(
+            fastembed=TicketEmbeddingSpaceMeta(
+                model=row["embedding_fastembed_model"],
+                content_hash=row["embedding_fastembed_content_hash"],
+                has_vector=bool(row["embedding_fastembed_has_vector"]),
+            ),
+            ollama=TicketEmbeddingSpaceMeta(
+                model=row["embedding_ollama_model"],
+                content_hash=row["embedding_ollama_content_hash"],
+                has_vector=bool(row["embedding_ollama_has_vector"]),
+            ),
+        )
 
     async def search(self, query: TicketSearchQuery) -> list[IncidentTicket]:
         """Full-text search with optional environment/service/severity/tags filters."""
@@ -106,8 +188,17 @@ class TicketRepository:
 
         return [_row_to_ticket(row) for row in rows]
 
-    async def upsert(self, ticket: IncidentTicket) -> UpsertOutcome:
+    async def upsert(
+        self,
+        ticket: IncidentTicket,
+        embeddings: TicketEmbeddingsWrite | None = None,
+    ) -> UpsertOutcome:
         """Insert or update a ticket by id. Returns Created or Updated."""
+        write = embeddings or TicketEmbeddingsWrite(
+            fastembed=EmbeddingSpaceWrite.preserve(),
+            ollama=EmbeddingSpaceWrite.preserve(),
+        )
+
         async with self._pool.acquire() as connection:
             inserted = await connection.fetchval(
                 _UPSERT_SQL,
@@ -120,6 +211,16 @@ class TicketRepository:
                 ticket.resolution_summary,
                 ticket.tags,
                 ticket.severity,
+                format_pgvector_literal(write.fastembed.vector),
+                write.fastembed.model,
+                write.fastembed.content_hash,
+                write.fastembed.updated_at,
+                format_pgvector_literal(write.ollama.vector),
+                write.ollama.model,
+                write.ollama.content_hash,
+                write.ollama.updated_at,
+                write.fastembed.update,
+                write.ollama.update,
             )
 
         return UpsertOutcome.CREATED if inserted else UpsertOutcome.UPDATED

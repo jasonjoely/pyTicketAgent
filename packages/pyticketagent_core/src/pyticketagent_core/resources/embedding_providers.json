@@ -1,0 +1,33 @@
+{
+  "requestTimeoutSeconds": 120,
+  "defaultSearchSpace": "ollama",
+  "spaces": {
+    "fastembed": {
+      "enabled": true,
+      "providerId": "fastembed",
+      "model": "BAAI/bge-base-en-v1.5"
+    },
+    "ollama": {
+      "enabled": true,
+      "providerId": "ollama",
+      "model": "nomic-embed-text"
+    }
+  },
+  "providers": [
+    {
+      "id": "fastembed",
+      "kind": "fastembed",
+      "models": [
+        { "model": "BAAI/bge-base-en-v1.5", "dimensions": 768 }
+      ]
+    },
+    {
+      "id": "ollama",
+      "kind": "ollama",
+      "apiEndpoint": "http://localhost:11434/api",
+      "models": [
+        { "model": "nomic-embed-text", "dimensions": 768 }
+      ]
+    }
+  ]
+}
