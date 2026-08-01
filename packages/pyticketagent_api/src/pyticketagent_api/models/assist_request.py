@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from pyticketagent_core.embeddings.embedding_space import EmbeddingSpace
+
 
 class AssistRequest(BaseModel):
     """Natural-language question plus optional search filters."""
@@ -26,4 +28,11 @@ class AssistRequest(BaseModel):
     tags: list[str] | None = Field(
         default=None,
         description="Optional filter: tags that must all be present on matching incidents.",
+    )
+    embedding_space: EmbeddingSpace | None = Field(
+        default=None,
+        description=(
+            "Optional embedding space for hybrid candidate retrieval "
+            "(fastembed or ollama). Omitting uses defaultSearchSpace from config."
+        ),
     )

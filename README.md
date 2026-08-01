@@ -54,7 +54,7 @@ Database name: **`pyTickets`**. Connection string and env vars use the `PYTICKET
 | FastEmbed | `BAAI/bge-base-en-v1.5` | 768 |
 | Ollama | `nomic-embed-text` | 768 |
 
-`POST /ingest` embeds both spaces (in parallel), then upserts ticket + vectors. Per-space failures set that space to `NULL` (ticket still saved). If the embedding text hash and model are unchanged, existing vectors are preserved (see [Content hash skip](#content-hash-skip-preserve-vectors)). Semantic search against these columns is not wired yet (FTS-only `GET /search`).
+`POST /ingest` embeds both spaces (in parallel), then upserts ticket + vectors. Per-space failures set that space to `NULL` (ticket still saved). If the embedding text hash and model are unchanged, existing vectors are preserved (see [Content hash skip](#content-hash-skip-preserve-vectors)). `GET /search` and `POST /assist` use hybrid retrieval (FTS + one semantic space, fused with RRF).
 
 ### API
 
@@ -69,9 +69,9 @@ uv run uvicorn pyticketagent_api.main:app --reload --port 8000
 | `GET` | `/health` | Liveness check |
 | `POST` | `/ingest` | Upsert tickets (soft-fail per ticket) and dual-space embeddings (soft-fail per space) |
 | `GET` | `/incidents/{id}` | Fetch one incident by id (404 if missing) |
-| `GET` | `/search` | Full-text search with optional environment/service/severity/tags filters |
+| `GET` | `/search` | Hybrid search (FTS + semantic / RRF); optional filters and `embedding_space` |
 | `GET` | `/incidents/{id}/assist` | LLM next steps + customer draft for one incident |
-| `POST` | `/assist` | Search + LLM: relevant incidents, next steps, customer draft |
+| `POST` | `/assist` | Hybrid search + LLM: relevant incidents, next steps, customer draft |
 
 OpenAPI docs: `http://localhost:8000/docs`
 
@@ -96,17 +96,19 @@ $env:PYTICKETAGENT_GEMINI_API_KEY = "..."
 ```
 
 ```powershell
-# Search
+# Search (hybrid; omit embedding_space to use defaultSearchSpace from config)
 Invoke-RestMethod "http://localhost:8000/search?q=timeout&environment=production"
+Invoke-RestMethod "http://localhost:8000/search?q=timeout&embedding_space=fastembed"
 
 # Assist by incident id
 Invoke-RestMethod "http://localhost:8000/incidents/1/assist"
 
-# Assist from a question (search + LLM)
+# Assist from a question (hybrid search + LLM)
 Invoke-RestMethod "http://localhost:8000/assist" -Method Post -ContentType "application/json" -Body '{"question":"Redis timeouts in production"}'
+Invoke-RestMethod "http://localhost:8000/assist" -Method Post -ContentType "application/json" -Body '{"question":"Redis timeouts in production","embedding_space":"ollama"}'
 ```
 
-`GET /search` returns `400` if `q` is missing or blank.
+`GET /search` returns up to **10** full incident tickets (`count` + `results`). Returns `400` if `q` is missing or blank. Optional `embedding_space` is `fastembed` or `ollama` (invalid values → `400`).
 
 Assist endpoints return `503` if LLM configuration is missing/invalid or the request times out, and `502` if the LLM response could not be parsed. `GET /incidents/{id}/assist` also returns `404` if the ticket does not exist. `POST /assist` returns `400` if `question` is missing or blank.
 
@@ -120,7 +122,7 @@ Edit the packaged API config:
 |------------|---------|
 | `spaces.fastembed` / `spaces.ollama` | `enabled`, `providerId`, `model` for each dual-space column |
 | `requestTimeoutSeconds` | Ollama embed HTTP timeout |
-| `defaultSearchSpace` | Preferred space for future semantic search (`fastembed` / `ollama`) |
+| `defaultSearchSpace` | Default semantic leg when `embedding_space` is omitted (`fastembed` / `ollama`) |
 | `providers` | Catalog of available models (must include the active `spaces.*.model` entries) |
 
 Restart the API after editing. For Ollama space:
@@ -162,9 +164,9 @@ database/
 tests/
 ```
 
-## Embedding architecture (Phase A)
+## Embedding architecture (Phase A + B)
 
-Dual-space POC: every ingest can store **two** 768-d vectors on the same `tickets` row (FastEmbed + Ollama). Semantic search is **not** wired yet — columns are filled for later Phase B.
+Dual-space POC: every ingest can store **two** 768-d vectors on the same `tickets` row (FastEmbed + Ollama). Phase B wires hybrid search: FTS + **one** embedding space per request, fused with Reciprocal Rank Fusion (RRF). Spaces are never mixed in a single cosine ranking.
 
 ### End-to-end flow
 
@@ -180,6 +182,12 @@ POST /ingest → TicketIngestService
         ▼
 TicketRepository.upsert → PostgreSQL tickets
         (embedding_fastembed* / embedding_ollama* columns)
+
+GET /search / POST /assist → TicketHybridSearchService
+        │  FTS (ts_rank) + semantic (one space) in parallel
+        │  soft-fail semantic → FTS-only
+        ▼
+RRF fuse → top 10 IncidentTicket results
 ```
 
 ### Content hash skip (preserve vectors)
@@ -225,9 +233,12 @@ Flow: `TicketIngestService` only calls `await client.embed([text])`. It does not
 | Dual-space runtime | `dual_space_embedding_runtime.py` + `_factory.py` |
 | Text to embed + content hash | `ticket_embedding_text_builder.py`, `embedding_content_hasher.py` |
 | Persist vectors | [`ticket_repository.py`](packages/pyticketagent_core/src/pyticketagent_core/data/ticket_repository.py) (`upsert`, `get_embedding_meta`) |
+| FTS / semantic query | [`ticket_repository.py`](packages/pyticketagent_core/src/pyticketagent_core/data/ticket_repository.py) (`search_fts`, `search_semantic`) |
+| RRF fusion | [`rrf_rank_fusion.py`](packages/pyticketagent_core/src/pyticketagent_core/data/rrf_rank_fusion.py) |
+| Hybrid search orchestration | [`ticket_hybrid_search_service.py`](packages/pyticketagent_api/src/pyticketagent_api/services/ticket_hybrid_search_service.py) |
 | Ingest orchestration + logging | [`ticket_ingest_service.py`](packages/pyticketagent_api/src/pyticketagent_api/services/ticket_ingest_service.py) |
 | App startup wiring | [`main.py`](packages/pyticketagent_api/src/pyticketagent_api/main.py), [`dependencies.py`](packages/pyticketagent_api/src/pyticketagent_api/dependencies.py) |
-| Unit tests | `tests/unit/embeddings/*`, `tests/unit/api/test_ticket_ingest_embedding.py` |
+| Unit tests | `tests/unit/embeddings/*`, `tests/unit/api/*`, `tests/unit/data/test_rrf_rank_fusion.py` |
 
 ### `embeddings/` package (core) — by role
 
@@ -258,4 +269,4 @@ Flow: `TicketIngestService` only calls `await client.embed([text])`. It does not
 
 ### Not part of embeddings
 
-LLM assist still uses `ai_providers.json` + `PYTICKETAGENT_LLM_*` env vars under `pyticketagent_core/ai/` and the assist services. That path is independent of dual-space embedding ingest.
+LLM assist still uses `ai_providers.json` + `PYTICKETAGENT_LLM_*` env vars under `pyticketagent_core/ai/`. Candidate retrieval for `POST /assist` shares the hybrid embedding search path; the LLM draft/rank step itself remains independent of embedding providers.
