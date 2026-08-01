@@ -14,7 +14,7 @@ def test_load_default_includes_poc_spaces_and_models() -> None:
     assert config.ollama.enabled is True
     assert config.fastembed.model == "BAAI/bge-base-en-v1.5"
     assert config.ollama.model == "nomic-embed-text"
-    assert config.default_search_space == EmbeddingSpace.FASTEMBED
+    assert config.default_search_space == EmbeddingSpace.OLLAMA
     assert config.request_timeout_seconds == 120
 
     fastembed = config.registry.resolve_binding(

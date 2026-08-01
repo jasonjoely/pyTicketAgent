@@ -22,8 +22,6 @@ from pyticketagent_core.assist.search_assist_prompt_builder import (
 )
 from pyticketagent_core.configuration.settings import Settings
 from pyticketagent_core.data.ticket_filter import TicketFilter
-from pyticketagent_core.data.ticket_repository import TicketRepository
-from pyticketagent_core.data.ticket_search_query import TicketSearchQuery
 from pyticketagent_core.tickets.incident_ticket import IncidentTicket
 
 from pyticketagent_api.models.assist_request import AssistRequest
@@ -32,10 +30,13 @@ from pyticketagent_api.models.search_assist_response import SearchAssistResponse
 from pyticketagent_api.services.ticket_assist_parse_exception import (
     TicketAssistParseException,
 )
+from pyticketagent_api.services.ticket_hybrid_search_service import (
+    TicketHybridSearchService,
+)
 
 logger = logging.getLogger(__name__)
 
-_MAX_CANDIDATES_FOR_LLM = 25
+_MAX_CANDIDATES_FOR_LLM = 10
 _TOP_IDS_TO_LOG = 10
 _MIN_SEARCH_ASSIST_OUTPUT_TOKENS = 2048
 
@@ -51,14 +52,14 @@ class SearchAssistService:
 
     def __init__(
         self,
-        ticket_repository: TicketRepository,
+        hybrid_search_service: TicketHybridSearchService,
         registry: JsonAiProviderRegistry,
         binding_resolver: EnvVarAiModelBindingResolver,
         chat_client_factory: ChatClientFactory,
         prompt_builder: SearchAssistPromptBuilder,
         settings: Settings,
     ) -> None:
-        self._ticket_repository = ticket_repository
+        self._hybrid_search_service = hybrid_search_service
         self._registry = registry
         self._binding_resolver = binding_resolver
         self._chat_client_factory = chat_client_factory
@@ -76,8 +77,11 @@ class SearchAssistService:
 
         self._log_search_input(question, filter_)
 
-        candidates = await self._ticket_repository.search(
-            TicketSearchQuery(search_text=question, filter=filter_)
+        candidates = await self._hybrid_search_service.search(
+            search_text=question,
+            filter_=filter_,
+            embedding_space=request.embedding_space,
+            limit=_MAX_CANDIDATES_FOR_LLM,
         )
         self._log_search_output(candidates)
 

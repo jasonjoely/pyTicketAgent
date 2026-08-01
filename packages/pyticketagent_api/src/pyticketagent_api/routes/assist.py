@@ -80,8 +80,11 @@ async def ticket_assist(
     response_model=SearchAssistResponse,
     summary="Get AI assist from a question",
     description=(
-        "Searches for relevant incidents matching the question and filters, then uses an LLM "
-        "to identify the most relevant matches and return next steps plus a draft customer response."
+        "Hybrid-searches for relevant incidents matching the question and filters "
+        "(full-text + semantic fused with RRF), then uses an LLM to identify the most "
+        "relevant matches and return next steps plus a draft customer response. "
+        "Optional embedding_space selects the semantic vector column "
+        "(defaults to embedding_providers.json defaultSearchSpace)."
     ),
     responses={
         400: {"description": "Field 'question' is missing or blank"},

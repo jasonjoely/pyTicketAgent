@@ -7,6 +7,7 @@ import asyncpg
 from pyticketagent_core.data.ticket_filter import TicketFilter
 from pyticketagent_core.data.ticket_search_query import TicketSearchQuery
 from pyticketagent_core.data.upsert_outcome import UpsertOutcome
+from pyticketagent_core.embeddings.embedding_space import EmbeddingSpace
 from pyticketagent_core.embeddings.embedding_space_write import EmbeddingSpaceWrite
 from pyticketagent_core.embeddings.pgvector_literal import format_pgvector_literal
 from pyticketagent_core.embeddings.ticket_embedding_meta import TicketEmbeddingMeta
@@ -104,6 +105,11 @@ _GET_EMBEDDING_META_SQL = """
     WHERE id = $1
 """
 
+_EMBEDDING_COLUMN_BY_SPACE = {
+    EmbeddingSpace.FASTEMBED: "embedding_fastembed",
+    EmbeddingSpace.OLLAMA: "embedding_ollama",
+}
+
 
 class TicketRepository:
     """Data access for the ``tickets`` table."""
@@ -145,7 +151,11 @@ class TicketRepository:
         )
 
     async def search(self, query: TicketSearchQuery) -> list[IncidentTicket]:
-        """Full-text search with optional environment/service/severity/tags filters."""
+        """Full-text search (alias for ``search_fts``)."""
+        return await self.search_fts(query)
+
+    async def search_fts(self, query: TicketSearchQuery) -> list[IncidentTicket]:
+        """Full-text search ranked by ``ts_rank``, with optional filters/limit."""
         search_text = query.search_text.strip()
         if not search_text:
             return []
@@ -155,32 +165,60 @@ class TicketRepository:
         args: list[object] = [search_text]
         param_index = 2
 
-        if filter_.environment and filter_.environment.strip():
-            conditions.append(f"environment = ${param_index}")
-            args.append(filter_.environment)
-            param_index += 1
-
-        if filter_.service and filter_.service.strip():
-            conditions.append(f"service = ${param_index}")
-            args.append(filter_.service)
-            param_index += 1
-
-        if filter_.tags:
-            conditions.append(f"tags && ${param_index}::text[]")
-            args.append(filter_.tags)
-            param_index += 1
-
-        if filter_.severity is not None:
-            conditions.append(f"severity = ${param_index}")
-            args.append(filter_.severity)
-            param_index += 1
+        param_index = _append_filter_conditions(
+            conditions, args, filter_, param_index
+        )
 
         where_sql = " AND ".join(conditions)
+        limit_sql = ""
+        if query.limit is not None:
+            limit_sql = f" LIMIT ${param_index}"
+            args.append(query.limit)
+
         search_sql = f"""
             SELECT {_SELECT_COLUMNS}
             FROM tickets
             WHERE {where_sql}
-            ORDER BY created_at DESC
+            ORDER BY ts_rank(search_vector, plainto_tsquery('english', $1)) DESC,
+                     id ASC
+            {limit_sql}
+        """
+
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(search_sql, *args)
+
+        return [_row_to_ticket(row) for row in rows]
+
+    async def search_semantic(
+        self,
+        query_vector: list[float],
+        space: EmbeddingSpace,
+        filter_: TicketFilter | None = None,
+        limit: int | None = None,
+    ) -> list[IncidentTicket]:
+        """Cosine-distance search against one embedding column."""
+        column = _EMBEDDING_COLUMN_BY_SPACE[space]
+        filter_ = filter_ or TicketFilter()
+        conditions = [f"{column} IS NOT NULL"]
+        args: list[object] = [format_pgvector_literal(query_vector)]
+        param_index = 2
+
+        param_index = _append_filter_conditions(
+            conditions, args, filter_, param_index
+        )
+
+        where_sql = " AND ".join(conditions)
+        limit_sql = ""
+        if limit is not None:
+            limit_sql = f" LIMIT ${param_index}"
+            args.append(limit)
+
+        search_sql = f"""
+            SELECT {_SELECT_COLUMNS}
+            FROM tickets
+            WHERE {where_sql}
+            ORDER BY {column} <=> $1::vector, id ASC
+            {limit_sql}
         """
 
         async with self._pool.acquire() as connection:
@@ -224,6 +262,35 @@ class TicketRepository:
             )
 
         return UpsertOutcome.CREATED if inserted else UpsertOutcome.UPDATED
+
+
+def _append_filter_conditions(
+    conditions: list[str],
+    args: list[object],
+    filter_: TicketFilter,
+    param_index: int,
+) -> int:
+    if filter_.environment and filter_.environment.strip():
+        conditions.append(f"environment = ${param_index}")
+        args.append(filter_.environment)
+        param_index += 1
+
+    if filter_.service and filter_.service.strip():
+        conditions.append(f"service = ${param_index}")
+        args.append(filter_.service)
+        param_index += 1
+
+    if filter_.tags:
+        conditions.append(f"tags && ${param_index}::text[]")
+        args.append(filter_.tags)
+        param_index += 1
+
+    if filter_.severity is not None:
+        conditions.append(f"severity = ${param_index}")
+        args.append(filter_.severity)
+        param_index += 1
+
+    return param_index
 
 
 def _row_to_ticket(row: asyncpg.Record) -> IncidentTicket:

@@ -2,15 +2,15 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from pyticketagent_api.models.search_result_item import SearchResultItem
+from pyticketagent_core.tickets.incident_ticket import IncidentTicket
 
 
 class SearchResponse(BaseModel):
-    """Full-text search results."""
+    """Hybrid search results with full incident tickets."""
 
     model_config = ConfigDict(extra="forbid")
 
-    count: int = Field(description="Total number of matching incidents.")
-    results: list[SearchResultItem] = Field(
-        description="Search hits ordered by relevance."
+    count: int = Field(description="Total number of matching incidents returned.")
+    results: list[IncidentTicket] = Field(
+        description="Search hits ordered by hybrid relevance (RRF)."
     )

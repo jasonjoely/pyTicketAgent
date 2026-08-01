@@ -8,12 +8,14 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import JSONResponse
 
 from pyticketagent_core.data.ticket_filter import TicketFilter
-from pyticketagent_core.data.ticket_repository import TicketRepository
-from pyticketagent_core.data.ticket_search_query import TicketSearchQuery
+from pyticketagent_core.embeddings.embedding_space import EmbeddingSpace
 
-from pyticketagent_api.dependencies import get_ticket_repository
+from pyticketagent_api.dependencies import get_ticket_hybrid_search_service
 from pyticketagent_api.mapping.search_response_mapper import SearchResponseMapper
 from pyticketagent_api.models.search_response import SearchResponse
+from pyticketagent_api.services.ticket_hybrid_search_service import (
+    TicketHybridSearchService,
+)
 
 router = APIRouter(tags=["Search"])
 
@@ -23,15 +25,21 @@ router = APIRouter(tags=["Search"])
     response_model=SearchResponse,
     summary="Search incidents",
     description=(
-        "Full-text search across incident titles, descriptions, and resolution summaries. "
-        "Supports optional filters for environment, service, severity, and comma-separated tags."
+        "Hybrid search (full-text + semantic) across incident titles, descriptions, "
+        "and resolution summaries, fused with Reciprocal Rank Fusion. "
+        "Supports optional filters for environment, service, severity, and "
+        "comma-separated tags. Optional embedding_space selects which vector column "
+        "to use for the semantic leg (defaults to embedding_providers.json "
+        "defaultSearchSpace)."
     ),
     responses={400: {"description": "Query parameter 'q' is missing or blank"}},
 )
 async def search(
-    ticket_repository: Annotated[TicketRepository, Depends(get_ticket_repository)],
+    hybrid_search_service: Annotated[
+        TicketHybridSearchService, Depends(get_ticket_hybrid_search_service)
+    ],
     q: Annotated[
-        str | None, Query(description="Full-text search query. Required.")
+        str | None, Query(description="Search query. Required.")
     ] = None,
     environment: Annotated[
         str | None,
@@ -49,6 +57,15 @@ async def search(
             description="Comma-separated list of tags; all specified tags must match."
         ),
     ] = None,
+    embedding_space: Annotated[
+        EmbeddingSpace | None,
+        Query(
+            description=(
+                "Embedding space for the semantic leg (fastembed or ollama). "
+                "Omitting uses defaultSearchSpace from config."
+            ),
+        ),
+    ] = None,
 ) -> SearchResponse | JSONResponse:
     if q is None or not q.strip():
         return JSONResponse(
@@ -62,8 +79,10 @@ async def search(
         severity=severity,
         tags=_parse_tags(tags),
     )
-    tickets = await ticket_repository.search(
-        TicketSearchQuery(search_text=q, filter=filter_)
+    tickets = await hybrid_search_service.search(
+        search_text=q,
+        filter_=filter_,
+        embedding_space=embedding_space,
     )
     return SearchResponseMapper.to_search_response(tickets)
 

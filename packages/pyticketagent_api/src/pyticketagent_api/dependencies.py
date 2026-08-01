@@ -24,6 +24,9 @@ from pyticketagent_core.embeddings.dual_space_embedding_runtime import (
 
 from pyticketagent_api.services.search_assist_service import SearchAssistService
 from pyticketagent_api.services.ticket_assist_service import TicketAssistService
+from pyticketagent_api.services.ticket_hybrid_search_service import (
+    TicketHybridSearchService,
+)
 from pyticketagent_api.services.ticket_ingest_service import TicketIngestService
 
 
@@ -49,6 +52,18 @@ def get_ticket_repository(
     pool: Annotated[asyncpg.Pool, Depends(get_pool)],
 ) -> TicketRepository:
     return TicketRepository(pool)
+
+
+def get_ticket_hybrid_search_service(
+    repository: Annotated[TicketRepository, Depends(get_ticket_repository)],
+    embedding_runtime: Annotated[
+        DualSpaceEmbeddingRuntime | None, Depends(get_embedding_runtime)
+    ],
+) -> TicketHybridSearchService:
+    return TicketHybridSearchService(
+        ticket_repository=repository,
+        embedding_runtime=embedding_runtime,
+    )
 
 
 def get_ticket_ingest_service(
@@ -86,7 +101,9 @@ def get_ticket_assist_service(
 
 
 def get_search_assist_service(
-    repository: Annotated[TicketRepository, Depends(get_ticket_repository)],
+    hybrid_search_service: Annotated[
+        TicketHybridSearchService, Depends(get_ticket_hybrid_search_service)
+    ],
     registry: Annotated[JsonAiProviderRegistry, Depends(get_ai_provider_registry)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SearchAssistService:
@@ -94,7 +111,7 @@ def get_search_assist_service(
     chat_client_factory = ChatClientFactory(settings)
     prompt_builder = SearchAssistPromptBuilder()
     return SearchAssistService(
-        repository,
+        hybrid_search_service,
         registry,
         binding_resolver,
         chat_client_factory,
