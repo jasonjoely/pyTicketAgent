@@ -13,6 +13,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    log_level: str = "INFO"
+    log_format: str = "json"
+    log_file: str | None = None
+
     database_url: str
     database_retry_max_attempts: int = 3
     database_retry_initial_delay_ms: int = 200

@@ -8,7 +8,7 @@ import os
 from pyticketagent_core.ai.ai_model_binding import AiModelBinding
 from pyticketagent_core.ai.ai_provider_definition import AiProviderDefinition
 from pyticketagent_core.ai.ai_provider_kind import AiProviderKind
-from pyticketagent_core.ai.json_ai_provider_registry import JsonAiProviderRegistry
+from pyticketagent_core.ai.ai_provider_registry import AiProviderRegistry
 from pyticketagent_core.configuration.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ class EnvVarAiModelBindingResolver:
 
     def __init__(
         self,
-        registry: JsonAiProviderRegistry,
+        registry: AiProviderRegistry,
         settings: Settings,
     ) -> None:
         self._registry = registry

@@ -137,6 +137,7 @@ Embedding failures are logged (WARNING) only; they do not appear in the ingest J
 
 | Variable | Required for | Description |
 |----------|--------------|-------------|
+| `PYTICKETAGENT_LOG_LEVEL` | API (optional) | Root log level (default `INFO`); logs are emitted as one JSON object per line, including `assist.prompt`/`assist.response`/`assist.decision` events for every Assist call, each tagged with the request's `request_id` |
 | `PYTICKETAGENT_DATABASE_URL` | API | PostgreSQL connection string for `pyTickets` |
 | `PYTICKETAGENT_DATABASE_RETRY_MAX_ATTEMPTS` | API (optional) | Transient DB retries after first failure (default `3`) |
 | `PYTICKETAGENT_DATABASE_RETRY_INITIAL_DELAY_MS` | API (optional) | Initial retry backoff in ms (default `200`) |

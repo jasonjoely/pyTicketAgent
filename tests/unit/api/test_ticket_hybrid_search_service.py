@@ -8,11 +8,14 @@ import pytest
 
 from pyticketagent_core.data.ticket_filter import TicketFilter
 from pyticketagent_core.data.ticket_search_query import TicketSearchQuery
+from pyticketagent_core.data.upsert_outcome import UpsertOutcome
 from pyticketagent_core.embeddings.dual_space_embedding_runtime import (
     DualSpaceEmbeddingRuntime,
 )
 from pyticketagent_core.embeddings.embedding_model_binding import EmbeddingModelBinding
 from pyticketagent_core.embeddings.embedding_space import EmbeddingSpace
+from pyticketagent_core.embeddings.ticket_embedding_meta import TicketEmbeddingMeta
+from pyticketagent_core.embeddings.ticket_embeddings_write import TicketEmbeddingsWrite
 from pyticketagent_core.tickets.incident_ticket import IncidentTicket
 from pyticketagent_api.services.ticket_hybrid_search_service import (
     TicketHybridSearchService,
@@ -62,6 +65,19 @@ class _FakeTicketRepository:
         self.fts_queries: list[TicketSearchQuery] = []
         self.semantic_calls: list[tuple[list[float], EmbeddingSpace, int | None]] = []
 
+    async def get_by_id(self, ticket_id: int) -> IncidentTicket | None:
+        raise NotImplementedError
+
+    async def get_embedding_meta(self, ticket_id: int) -> TicketEmbeddingMeta | None:
+        raise NotImplementedError
+
+    async def upsert(
+        self,
+        ticket: IncidentTicket,
+        embeddings: TicketEmbeddingsWrite | None = None,
+    ) -> UpsertOutcome:
+        raise NotImplementedError
+
     async def search_fts(self, query: TicketSearchQuery) -> list[IncidentTicket]:
         self.fts_queries.append(query)
         return list(self.fts)
@@ -109,7 +125,7 @@ async def test_hybrid_fuses_fts_and_semantic() -> None:
     fastembed = _FakeEmbeddingClient(vector=[0.1, 0.2, 0.3])
     ollama = _FakeEmbeddingClient(vector=[0.4, 0.5, 0.6])
     service = TicketHybridSearchService(
-        ticket_repository=repo,  # type: ignore[arg-type]
+        ticket_repository=repo,
         embedding_runtime=_runtime(fastembed, ollama),
         result_limit=10,
     )
@@ -128,7 +144,7 @@ async def test_embedding_space_override_uses_fastembed() -> None:
     fastembed = _FakeEmbeddingClient(vector=[0.1, 0.2, 0.3])
     ollama = _FakeEmbeddingClient(vector=[0.4, 0.5, 0.6])
     service = TicketHybridSearchService(
-        ticket_repository=repo,  # type: ignore[arg-type]
+        ticket_repository=repo,
         embedding_runtime=_runtime(fastembed, ollama),
     )
 
@@ -146,7 +162,7 @@ async def test_embed_failure_falls_back_to_fts_only() -> None:
     )
     ollama = _FakeEmbeddingClient(error=RuntimeError("ollama down"))
     service = TicketHybridSearchService(
-        ticket_repository=repo,  # type: ignore[arg-type]
+        ticket_repository=repo,
         embedding_runtime=_runtime(_FakeEmbeddingClient(vector=[1.0]), ollama),
     )
 
@@ -159,7 +175,7 @@ async def test_embed_failure_falls_back_to_fts_only() -> None:
 async def test_disabled_space_falls_back_to_fts_only() -> None:
     repo = _FakeTicketRepository(fts=[_ticket(5)], semantic=[_ticket(9)])
     service = TicketHybridSearchService(
-        ticket_repository=repo,  # type: ignore[arg-type]
+        ticket_repository=repo,
         embedding_runtime=_runtime(
             _FakeEmbeddingClient(vector=[1.0]),
             _FakeEmbeddingClient(vector=[2.0]),
@@ -176,7 +192,7 @@ async def test_disabled_space_falls_back_to_fts_only() -> None:
 async def test_missing_runtime_falls_back_to_fts_only() -> None:
     repo = _FakeTicketRepository(fts=[_ticket(7)])
     service = TicketHybridSearchService(
-        ticket_repository=repo,  # type: ignore[arg-type]
+        ticket_repository=repo,
         embedding_runtime=None,
     )
 
@@ -191,7 +207,7 @@ async def test_result_limit_truncates() -> None:
         semantic=[],
     )
     service = TicketHybridSearchService(
-        ticket_repository=repo,  # type: ignore[arg-type]
+        ticket_repository=repo,
         embedding_runtime=None,
         result_limit=10,
     )
