@@ -7,11 +7,14 @@ from typing import Any
 
 import pytest
 
+from pyticketagent_core.data.ticket_filter import TicketFilter
+from pyticketagent_core.data.ticket_search_query import TicketSearchQuery
 from pyticketagent_core.data.upsert_outcome import UpsertOutcome
 from pyticketagent_core.embeddings.dual_space_embedding_runtime import (
     DualSpaceEmbeddingRuntime,
 )
 from pyticketagent_core.embeddings.embedding_model_binding import EmbeddingModelBinding
+from pyticketagent_core.embeddings.embedding_space import EmbeddingSpace
 from pyticketagent_core.embeddings.embedding_space_write import EmbeddingSpaceWrite
 from pyticketagent_core.embeddings.ticket_embedding_meta import TicketEmbeddingMeta
 from pyticketagent_core.embeddings.ticket_embedding_space_meta import (
@@ -51,8 +54,23 @@ class _FakeTicketRepository:
         self.existing_meta = existing_meta
         self.upserts: list[tuple[IncidentTicket, TicketEmbeddingsWrite | None]] = []
 
+    async def get_by_id(self, ticket_id: int) -> IncidentTicket | None:
+        raise NotImplementedError
+
     async def get_embedding_meta(self, ticket_id: int) -> TicketEmbeddingMeta | None:
         return self.existing_meta
+
+    async def search_fts(self, query: TicketSearchQuery) -> list[IncidentTicket]:
+        raise NotImplementedError
+
+    async def search_semantic(
+        self,
+        query_vector: list[float],
+        space: EmbeddingSpace,
+        filter_: TicketFilter | None = None,
+        limit: int | None = None,
+    ) -> list[IncidentTicket]:
+        raise NotImplementedError
 
     async def upsert(
         self,
@@ -109,7 +127,7 @@ async def test_ingest_soft_fails_one_space_to_null() -> None:
     ollama = _FakeEmbeddingClient(error=RuntimeError("ollama down"))
     repo = _FakeTicketRepository()
     service = TicketIngestService(
-        repo,  # type: ignore[arg-type]
+        repo,
         embedding_runtime=_runtime(fastembed, ollama),
     )
 
@@ -171,7 +189,7 @@ async def test_ingest_skips_unchanged_hash_and_model() -> None:
         )
     )
     service = TicketIngestService(
-        repo,  # type: ignore[arg-type]
+        repo,
         embedding_runtime=_runtime(fastembed, ollama),
     )
 
@@ -191,7 +209,7 @@ async def test_ingest_clears_both_spaces_when_both_fail() -> None:
     ollama = _FakeEmbeddingClient(error=RuntimeError("ollama fail"))
     repo = _FakeTicketRepository()
     service = TicketIngestService(
-        repo,  # type: ignore[arg-type]
+        repo,
         embedding_runtime=_runtime(fastembed, ollama),
     )
 

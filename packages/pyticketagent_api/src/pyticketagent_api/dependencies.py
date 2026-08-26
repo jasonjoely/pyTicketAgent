@@ -7,16 +7,19 @@ from typing import Annotated
 import asyncpg
 from fastapi import Depends, Request
 
+from pyticketagent_core.ai.ai_model_binding_resolver import AiModelBindingResolver
+from pyticketagent_core.ai.ai_provider_registry import AiProviderRegistry
 from pyticketagent_core.ai.chat_client_factory import ChatClientFactory
 from pyticketagent_core.ai.env_var_ai_model_binding_resolver import (
     EnvVarAiModelBindingResolver,
 )
-from pyticketagent_core.ai.json_ai_provider_registry import JsonAiProviderRegistry
+from pyticketagent_core.ai.provider_chat_client_factory import ProviderChatClientFactory
 from pyticketagent_core.assist.search_assist_prompt_builder import (
     SearchAssistPromptBuilder,
 )
 from pyticketagent_core.assist.ticket_assist_prompt_builder import TicketAssistPromptBuilder
 from pyticketagent_core.configuration.settings import Settings
+from pyticketagent_core.data.asyncpg_ticket_repository import AsyncpgTicketRepository
 from pyticketagent_core.data.ticket_repository import TicketRepository
 from pyticketagent_core.embeddings.dual_space_embedding_runtime import (
     DualSpaceEmbeddingRuntime,
@@ -38,7 +41,7 @@ def get_pool(request: Request) -> asyncpg.Pool:
     return request.app.state.pool
 
 
-def get_ai_provider_registry(request: Request) -> JsonAiProviderRegistry:
+def get_ai_provider_registry(request: Request) -> AiProviderRegistry:
     return request.app.state.ai_provider_registry
 
 
@@ -51,7 +54,7 @@ def get_embedding_runtime(
 def get_ticket_repository(
     pool: Annotated[asyncpg.Pool, Depends(get_pool)],
 ) -> TicketRepository:
-    return TicketRepository(pool)
+    return AsyncpgTicketRepository(pool)
 
 
 def get_ticket_hybrid_search_service(
@@ -84,11 +87,13 @@ def get_ticket_ingest_service(
 
 def get_ticket_assist_service(
     repository: Annotated[TicketRepository, Depends(get_ticket_repository)],
-    registry: Annotated[JsonAiProviderRegistry, Depends(get_ai_provider_registry)],
+    registry: Annotated[AiProviderRegistry, Depends(get_ai_provider_registry)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> TicketAssistService:
-    binding_resolver = EnvVarAiModelBindingResolver(registry, settings)
-    chat_client_factory = ChatClientFactory(settings)
+    binding_resolver: AiModelBindingResolver = EnvVarAiModelBindingResolver(
+        registry, settings
+    )
+    chat_client_factory: ChatClientFactory = ProviderChatClientFactory(settings)
     prompt_builder = TicketAssistPromptBuilder()
     return TicketAssistService(
         repository,
@@ -104,11 +109,13 @@ def get_search_assist_service(
     hybrid_search_service: Annotated[
         TicketHybridSearchService, Depends(get_ticket_hybrid_search_service)
     ],
-    registry: Annotated[JsonAiProviderRegistry, Depends(get_ai_provider_registry)],
+    registry: Annotated[AiProviderRegistry, Depends(get_ai_provider_registry)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SearchAssistService:
-    binding_resolver = EnvVarAiModelBindingResolver(registry, settings)
-    chat_client_factory = ChatClientFactory(settings)
+    binding_resolver: AiModelBindingResolver = EnvVarAiModelBindingResolver(
+        registry, settings
+    )
+    chat_client_factory: ChatClientFactory = ProviderChatClientFactory(settings)
     prompt_builder = SearchAssistPromptBuilder()
     return SearchAssistService(
         hybrid_search_service,
