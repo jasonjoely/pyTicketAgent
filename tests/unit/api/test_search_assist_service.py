@@ -23,6 +23,7 @@ from pyticketagent_core.embeddings.embedding_space import EmbeddingSpace
 from pyticketagent_core.embeddings.ticket_embedding_meta import TicketEmbeddingMeta
 from pyticketagent_core.embeddings.ticket_embeddings_write import TicketEmbeddingsWrite
 from pyticketagent_core.tickets.incident_ticket import IncidentTicket
+from pyticketagent_core.tickets.ticket_state import TicketState
 
 from pyticketagent_api.models.assist_request import AssistRequest
 from pyticketagent_api.services.search_assist_service import SearchAssistService
@@ -48,6 +49,7 @@ def _ticket(ticket_id: int) -> IncidentTicket:
         resolution_summary="",
         tags=["timeout"],
         severity=2,
+        status=TicketState.UNASSIGNED,
     )
 
 

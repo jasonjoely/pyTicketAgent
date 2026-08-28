@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from pyticketagent_core.tickets.ticket_state import TicketState
+
 
 class IncidentTicket(BaseModel):
     """Incident ticket domain model (snake_case JSON)."""
@@ -31,4 +33,7 @@ class IncidentTicket(BaseModel):
     )
     severity: int = Field(
         description="Severity level from 0 (lowest) upward."
+    )
+    status: TicketState = Field(
+        description="Current status of the incident."
     )

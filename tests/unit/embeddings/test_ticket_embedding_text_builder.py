@@ -7,6 +7,7 @@ from pyticketagent_core.embeddings.ticket_embedding_text_builder import (
     TicketEmbeddingTextBuilder,
 )
 from pyticketagent_core.tickets.incident_ticket import IncidentTicket
+from pyticketagent_core.tickets.ticket_state import TicketState
 
 
 def _ticket(**overrides: object) -> IncidentTicket:
@@ -20,6 +21,7 @@ def _ticket(**overrides: object) -> IncidentTicket:
         "resolution_summary": "Increased pool size",
         "tags": ["cache", "latency"],
         "severity": 2,
+        "status": TicketState.RESOLVED,
     }
     data.update(overrides)
     return IncidentTicket.model_validate(data)

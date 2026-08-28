@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 
 from pyticketagent_core.tickets.incident_ticket import IncidentTicket
+from pyticketagent_core.tickets.ticket_state import TicketState
 from pyticketagent_api.mapping.search_response_mapper import SearchResponseMapper
 
 
@@ -17,6 +18,7 @@ def test_to_search_response_returns_full_tickets() -> None:
         resolution_summary="Killed blocker",
         tags=["postgres", "locks"],
         severity=3,
+        status=TicketState.RESOLVED,
     )
 
     response = SearchResponseMapper.to_search_response([ticket])

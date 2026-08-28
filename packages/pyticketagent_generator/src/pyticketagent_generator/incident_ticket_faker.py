@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 from faker import Faker
 
 from pyticketagent_core.tickets.incident_ticket import IncidentTicket
+from pyticketagent_core.tickets.ticket_state import TicketState
 from pyticketagent_generator.ticket_scenario import TicketScenario
-from pyticketagent_generator.ticket_state import TicketState
 
 
 class IncidentTicketFaker:
@@ -60,6 +60,7 @@ class IncidentTicketFaker:
                     resolution_summary=resolution,
                     tags=_pick_tags(faker, scenario.tags),
                     severity=faker.random_int(0, 4),
+                    status=state,
                 )
             )
 

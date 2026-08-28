@@ -27,6 +27,7 @@ from pyticketagent_core.embeddings.ticket_embedding_text_builder import (
 )
 from pyticketagent_core.embeddings.ticket_embeddings_write import TicketEmbeddingsWrite
 from pyticketagent_core.tickets.incident_ticket import IncidentTicket
+from pyticketagent_core.tickets.ticket_state import TicketState
 
 from pyticketagent_api.models.incident_ticket_request import IncidentTicketRequest
 from pyticketagent_api.models.ingest_counts import IngestCounts
@@ -344,5 +345,6 @@ def _try_validate(
         resolution_summary=request.resolution_summary or "",
         tags=list(request.tags) if request.tags is not None else [],
         severity=severity,
+        status=request.status or TicketState.UNASSIGNED,
     )
     return ticket, ""

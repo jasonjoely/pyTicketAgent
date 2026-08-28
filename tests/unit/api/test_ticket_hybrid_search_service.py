@@ -17,6 +17,7 @@ from pyticketagent_core.embeddings.embedding_space import EmbeddingSpace
 from pyticketagent_core.embeddings.ticket_embedding_meta import TicketEmbeddingMeta
 from pyticketagent_core.embeddings.ticket_embeddings_write import TicketEmbeddingsWrite
 from pyticketagent_core.tickets.incident_ticket import IncidentTicket
+from pyticketagent_core.tickets.ticket_state import TicketState
 from pyticketagent_api.services.ticket_hybrid_search_service import (
     TicketHybridSearchService,
 )
@@ -33,6 +34,7 @@ def _ticket(ticket_id: int, title: str = "t") -> IncidentTicket:
         resolution_summary="fixed",
         tags=["x"],
         severity=2,
+        status=TicketState.RESOLVED,
     )
 
 

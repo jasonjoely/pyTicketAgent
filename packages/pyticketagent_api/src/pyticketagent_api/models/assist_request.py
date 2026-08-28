@@ -3,6 +3,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from pyticketagent_core.embeddings.embedding_space import EmbeddingSpace
+from pyticketagent_core.tickets.ticket_state import TicketState
 
 
 class AssistRequest(BaseModel):
@@ -28,6 +29,10 @@ class AssistRequest(BaseModel):
     tags: list[str] | None = Field(
         default=None,
         description="Optional filter: tags that must all be present on matching incidents.",
+    )
+    status: TicketState | None = Field(
+        default=None,
+        description="Optional filter: ticket status.",
     )
     embedding_space: EmbeddingSpace | None = Field(
         default=None,
