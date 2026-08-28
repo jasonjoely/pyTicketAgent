@@ -73,6 +73,7 @@ class SearchAssistService:
             service=request.service,
             severity=request.severity,
             tags=request.tags,
+            status=request.status,
         )
 
         self._log_search_input(question, filter_)

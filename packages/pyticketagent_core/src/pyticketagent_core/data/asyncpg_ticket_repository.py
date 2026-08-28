@@ -16,6 +16,7 @@ from pyticketagent_core.embeddings.ticket_embedding_space_meta import (
 )
 from pyticketagent_core.embeddings.ticket_embeddings_write import TicketEmbeddingsWrite
 from pyticketagent_core.tickets.incident_ticket import IncidentTicket
+from pyticketagent_core.tickets.ticket_state import TicketState
 
 _SELECT_COLUMNS = """
     id,
@@ -26,22 +27,23 @@ _SELECT_COLUMNS = """
     description,
     resolution_summary,
     tags,
-    severity
+    severity,
+    status
 """
 
 _UPSERT_SQL = """
     INSERT INTO tickets (
         id, created_at, environment, service, title, description,
-        resolution_summary, tags, severity,
+        resolution_summary, tags, severity, status,
         embedding_fastembed, embedding_fastembed_model,
         embedding_fastembed_content_hash, embedding_fastembed_updated_at,
         embedding_ollama, embedding_ollama_model,
         embedding_ollama_content_hash, embedding_ollama_updated_at
     )
     VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9,
-        $10::vector, $11, $12, $13,
-        $14::vector, $15, $16, $17
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        $11::vector, $12, $13, $14,
+        $15::vector, $16, $17, $18
     )
     ON CONFLICT (id) DO UPDATE SET
         created_at         = EXCLUDED.created_at,
@@ -52,36 +54,37 @@ _UPSERT_SQL = """
         resolution_summary = EXCLUDED.resolution_summary,
         tags               = EXCLUDED.tags,
         severity           = EXCLUDED.severity,
+        status             = EXCLUDED.status,
         embedding_fastembed = CASE
-            WHEN $18::boolean THEN EXCLUDED.embedding_fastembed
+            WHEN $19::boolean THEN EXCLUDED.embedding_fastembed
             ELSE tickets.embedding_fastembed
         END,
         embedding_fastembed_model = CASE
-            WHEN $18::boolean THEN EXCLUDED.embedding_fastembed_model
+            WHEN $19::boolean THEN EXCLUDED.embedding_fastembed_model
             ELSE tickets.embedding_fastembed_model
         END,
         embedding_fastembed_content_hash = CASE
-            WHEN $18::boolean THEN EXCLUDED.embedding_fastembed_content_hash
+            WHEN $19::boolean THEN EXCLUDED.embedding_fastembed_content_hash
             ELSE tickets.embedding_fastembed_content_hash
         END,
         embedding_fastembed_updated_at = CASE
-            WHEN $18::boolean THEN EXCLUDED.embedding_fastembed_updated_at
+            WHEN $19::boolean THEN EXCLUDED.embedding_fastembed_updated_at
             ELSE tickets.embedding_fastembed_updated_at
         END,
         embedding_ollama = CASE
-            WHEN $19::boolean THEN EXCLUDED.embedding_ollama
+            WHEN $20::boolean THEN EXCLUDED.embedding_ollama
             ELSE tickets.embedding_ollama
         END,
         embedding_ollama_model = CASE
-            WHEN $19::boolean THEN EXCLUDED.embedding_ollama_model
+            WHEN $20::boolean THEN EXCLUDED.embedding_ollama_model
             ELSE tickets.embedding_ollama_model
         END,
         embedding_ollama_content_hash = CASE
-            WHEN $19::boolean THEN EXCLUDED.embedding_ollama_content_hash
+            WHEN $20::boolean THEN EXCLUDED.embedding_ollama_content_hash
             ELSE tickets.embedding_ollama_content_hash
         END,
         embedding_ollama_updated_at = CASE
-            WHEN $19::boolean THEN EXCLUDED.embedding_ollama_updated_at
+            WHEN $20::boolean THEN EXCLUDED.embedding_ollama_updated_at
             ELSE tickets.embedding_ollama_updated_at
         END
     RETURNING (xmax = 0) AS inserted
@@ -249,6 +252,7 @@ class AsyncpgTicketRepository:
                 ticket.resolution_summary,
                 ticket.tags,
                 ticket.severity,
+                ticket.status.value,
                 format_pgvector_literal(write.fastembed.vector),
                 write.fastembed.model,
                 write.fastembed.content_hash,
@@ -290,6 +294,11 @@ def _append_filter_conditions(
         args.append(filter_.severity)
         param_index += 1
 
+    if filter_.status is not None:
+        conditions.append(f"status = ${param_index}")
+        args.append(filter_.status.value)
+        param_index += 1
+
     return param_index
 
 
@@ -305,4 +314,5 @@ def _row_to_ticket(row: asyncpg.Record) -> IncidentTicket:
         resolution_summary=row["resolution_summary"],
         tags=list(tags) if tags is not None else [],
         severity=row["severity"],
+        status=TicketState(row["status"]),
     )

@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from pyticketagent_core.tickets.ticket_state import TicketState
+
 
 class IncidentTicketRequest(BaseModel):
     """Ingest payload item. Validation beyond shape is done in the ingest service."""
@@ -42,4 +44,8 @@ class IncidentTicketRequest(BaseModel):
     severity: int | None = Field(
         default=None,
         description="Severity level from 0 (lowest) upward.",
+    )
+    status: TicketState | None = Field(
+        default=None,
+        description="Current status of the incident.",
     )

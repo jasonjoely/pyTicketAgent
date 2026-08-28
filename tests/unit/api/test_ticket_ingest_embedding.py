@@ -22,6 +22,7 @@ from pyticketagent_core.embeddings.ticket_embedding_space_meta import (
 )
 from pyticketagent_core.embeddings.ticket_embeddings_write import TicketEmbeddingsWrite
 from pyticketagent_core.tickets.incident_ticket import IncidentTicket
+from pyticketagent_core.tickets.ticket_state import TicketState
 
 from pyticketagent_api.models.incident_ticket_request import IncidentTicketRequest
 from pyticketagent_api.services.ticket_ingest_service import TicketIngestService
@@ -166,6 +167,7 @@ async def test_ingest_skips_unchanged_hash_and_model() -> None:
         resolution_summary="",
         tags=["bug"],
         severity=1,
+        status=TicketState.UNASSIGNED,
     )
     fe_hash = hasher.hash_text(
         builder.build_document(ticket, EmbeddingSpace.FASTEMBED)

@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from pyticketagent_core.data.ticket_filter import TicketFilter
 from pyticketagent_core.embeddings.embedding_space import EmbeddingSpace
+from pyticketagent_core.tickets.ticket_state import TicketState
 
 from pyticketagent_api.dependencies import get_ticket_hybrid_search_service
 from pyticketagent_api.mapping.search_response_mapper import SearchResponseMapper
@@ -57,6 +58,10 @@ async def search(
             description="Comma-separated list of tags; all specified tags must match."
         ),
     ] = None,
+    status: Annotated[
+        TicketState | None,
+        Query(description="Filter by ticket status."),
+    ] = None,
     embedding_space: Annotated[
         EmbeddingSpace | None,
         Query(
@@ -78,6 +83,7 @@ async def search(
         service=service,
         severity=severity,
         tags=_parse_tags(tags),
+        status=status,
     )
     tickets = await hybrid_search_service.search(
         search_text=q,
